@@ -79,7 +79,6 @@ Element.defaultFieldValue = mkDefault;
  * @param {boolean=} unsigned Whether unsigned or not, defaults to reuse it from Long-like objects or to signed for
  *  strings and numbers
  * @returns {!Long}
- * @throws {Error} If the value cannot be converted to a Long
  * @inner
  */
 function mkLong(value, unsigned) {
@@ -90,7 +89,15 @@ function mkLong(value, unsigned) {
         return ProtoBuf.Long.fromString(value, unsigned || false, 10);
     if (typeof value === 'number')
         return ProtoBuf.Long.fromNumber(value, unsigned || false);
-    throw Error("not convertible to Long");
+}
+
+/**
+* Fails verification.
+* @override
+* @expose
+*/
+function failVerify(self, val, msg) {
+    throw Error("Illegal value for "+self.toString(true)+" of type "+self.type.name+": "+val+" ("+msg+")");
 }
 
 /**
@@ -102,10 +109,6 @@ function mkLong(value, unsigned) {
  * @expose
  */
 ElementPrototype.verifyValue = function(value) {
-    var self = this;
-    function fail(val, msg) {
-        throw Error("Illegal value for "+self.toString(true)+" of type "+self.type.name+": "+val+" ("+msg+")");
-    }
     switch (this.type) {
         // Signed 32bit
         case ProtoBuf.TYPES["int32"]:
@@ -113,14 +116,14 @@ ElementPrototype.verifyValue = function(value) {
         case ProtoBuf.TYPES["sfixed32"]:
             // Account for !NaN: value === value
             if (typeof value !== 'number' || (value === value && value % 1 !== 0))
-                fail(typeof value, "not an integer");
+                failVerify(this, typeof value, "not an integer");
             return value > 4294967295 ? value | 0 : value;
 
         // Unsigned 32bit
         case ProtoBuf.TYPES["uint32"]:
         case ProtoBuf.TYPES["fixed32"]:
             if (typeof value !== 'number' || (value === value && value % 1 !== 0))
-                fail(typeof value, "not an integer");
+                failVerify(this, typeof value, "not an integer");
             return value < 0 ? value >>> 0 : value;
 
         // Signed 64bit
@@ -128,45 +131,39 @@ ElementPrototype.verifyValue = function(value) {
         case ProtoBuf.TYPES["sint64"]:
         case ProtoBuf.TYPES["sfixed64"]: {
             if (ProtoBuf.Long)
-                try {
-                    return mkLong(value, false);
-                } catch (e) {
-                    fail(typeof value, e.message);
-                }
+                return mkLong(value, false)
+                    || failVerify(this, typeof value, e.message);
             else
-                fail(typeof value, "requires Long.js");
+                failVerify(this, typeof value, "requires Long.js");
         }
 
         // Unsigned 64bit
         case ProtoBuf.TYPES["uint64"]:
         case ProtoBuf.TYPES["fixed64"]: {
             if (ProtoBuf.Long)
-                try {
-                    return mkLong(value, true);
-                } catch (e) {
-                    fail(typeof value, e.message);
-                }
+                return mkLong(value, true)
+                    || failVerify(this, typeof value, e.message);
             else
-                fail(typeof value, "requires Long.js");
+                failVerify(this, typeof value, "requires Long.js");
         }
 
         // Bool
         case ProtoBuf.TYPES["bool"]:
             if (typeof value !== 'boolean')
-                fail(typeof value, "not a boolean");
+                failVerify(this, typeof value, "not a boolean");
             return value;
 
         // Float
         case ProtoBuf.TYPES["float"]:
         case ProtoBuf.TYPES["double"]:
             if (typeof value !== 'number')
-                fail(typeof value, "not a number");
+                failVerify(this, typeof value, "not a number");
             return value;
 
         // Length-delimited string
         case ProtoBuf.TYPES["string"]:
             if (typeof value !== 'string' && !(value && value instanceof String))
-                fail(typeof value, "not a string");
+                failVerify(this, typeof value, "not a string");
             return ""+value; // Convert String object to string
 
         // Length-delimited bytes
@@ -187,20 +184,20 @@ ElementPrototype.verifyValue = function(value) {
             if (this.syntax === 'proto3') {
                 // proto3: just make sure it's an integer.
                 if (typeof value !== 'number' || (value === value && value % 1 !== 0))
-                    fail(typeof value, "not an integer");
+                    failVerify(this, typeof value, "not an integer");
                 if (value > 4294967295 || value < 0)
-                    fail(typeof value, "not in range for uint32")
+                    failVerify(this, typeof value, "not in range for uint32")
                 return value;
             } else {
                 // proto2 requires enum values to be valid.
-                fail(value, "not a valid enum value");
+                failVerify(this, value, "not a valid enum value");
             }
         }
         // Embedded message
         case ProtoBuf.TYPES["group"]:
         case ProtoBuf.TYPES["message"]: {
             if (!value || typeof value !== 'object')
-                fail(typeof value, "object expected");
+                failVerify(this, typeof value, "object expected");
             if (value instanceof this.resolvedType.clazz)
                 return value;
             if (value instanceof ProtoBuf.Builder.Message) {

@@ -136,6 +136,15 @@ var Field = function(builder, message, rule, keytype, type, name, id, options, o
 var FieldPrototype = Field.prototype = Object.create(T.prototype);
 
 /**
+* Fails verification.
+* @override
+* @expose
+*/
+function failVerify(self, val, msg) {
+    throw Error("Illegal value for "+self.toString(true)+" of type "+self.type.name+": "+val+" ("+msg+")");
+}
+
+/**
  * Builds the field.
  * @override
  * @expose
@@ -164,32 +173,27 @@ FieldPrototype.build = function() {
  * @expose
  */
 FieldPrototype.verifyValue = function(value, skipRepeated) {
-    skipRepeated = skipRepeated || false;
-    var self = this;
-    function fail(val, msg) {
-        throw Error("Illegal value for "+self.toString(true)+" of type "+self.type.name+": "+val+" ("+msg+")");
-    }
     if (value === null) { // NULL values for optional fields
         if (this.required)
-            fail(typeof value, "required");
+            failVerify(this, typeof value, "required");
         if (this.syntax === 'proto3' && this.type !== ProtoBuf.TYPES["message"])
-            fail(typeof value, "proto3 field without field presence cannot be null");
+            failVerify(this, typeof value, "proto3 field without field presence cannot be null");
         return null;
     }
     var i;
     if (this.repeated && !skipRepeated) { // Repeated values as arrays
         if (!Array.isArray(value))
             value = [value];
-        var res = [];
+        var res = new Array(value.length);
         for (i=0; i<value.length; i++)
-            res.push(this.element.verifyValue(value[i]));
+            res[i] = this.element.verifyValue(value[i]);
         return res;
     }
     if (this.map && !skipRepeated) { // Map values as objects
         if (!(value instanceof ProtoBuf.Map)) {
             // If not already a Map, attempt to convert.
             if (!(value instanceof Object)) {
-                fail(typeof value,
+                failVerify(this, typeof value,
                      "expected ProtoBuf.Map or raw object for map field");
             }
             return new ProtoBuf.Map(this, value);
@@ -199,7 +203,7 @@ FieldPrototype.verifyValue = function(value, skipRepeated) {
     }
     // All non-repeated fields expect no array
     if (!this.repeated && Array.isArray(value))
-        fail(typeof value, "no array expected");
+        failVerify(this, typeof value, "no array expected");
 
     return this.element.verifyValue(value);
 };
